@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SpaConAE data, checkpoints and logs
+/data/
+/checkpoints/
+/logs/
+lightning_logs/
