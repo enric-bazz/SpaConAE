@@ -18,6 +18,7 @@ src/spaconae/     Python package (PyTorch Lightning)
 configs/          YAML configurations (values from the notebooks)
 scripts/          dataset-specific preprocessing (not part of the package)
 notebooks/        original Colab notebooks, kept as the reference implementation
+docs/             development log: design decisions, discarded approaches, known issues
 tests/            unit tests and an end-to-end smoke test on synthetic data
 ```
 
@@ -84,6 +85,8 @@ pytest
 ```
 
 ## Differences from the notebooks
+
+The reasoning behind the design, the alternatives that were tried and the open issues are in the [development log](docs/development_log.md).
 
 The first version of the package reproduces the behaviour of the notebooks. Metrics are logged without the loss coefficients. Later changes:
 
