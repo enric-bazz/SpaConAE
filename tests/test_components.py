@@ -62,3 +62,14 @@ def test_contrastive_loss_outputs():
     assert loss.ndim == 0
     assert abs(pos - 1.0) < 1e-5  # identical pairs
     assert 0 <= n_neg <= 7
+
+
+def test_contrastive_loss_averages_over_all_pairs():
+    # Pair 0 is opposite, the others identical; threshold -1 selects no negatives
+    z_st = torch.eye(4)
+    z_proj = torch.eye(4)
+    z_proj[0] = -z_proj[0]
+    loss, pos, _, n_neg = ContrastiveLoss(sim_threshold=-1.0)(z_proj, z_st)
+    assert n_neg == 0
+    assert torch.isclose(loss, torch.tensor((1 - (-1)) ** 2 / 4))
+    assert abs(pos - 0.5) < 1e-6

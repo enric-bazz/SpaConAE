@@ -75,3 +75,4 @@ pytest
 The first version of the package reproduces the behaviour of the notebooks. Metrics are logged without the loss coefficients. Later changes:
 
 - **Alignment on pretrained latents.** In the notebook the datasets were encoded when the alignment model was constructed, before the pretrained encoder weights were loaded and with dropout active, so `M` was fitted on the output of randomly initialised encoders. The weights are now loaded first and the encoders run in evaluation mode.
+- **Contrastive loss over the whole batch.** The notebook returned the loss of the last spot of each batch only; the loss is now the mean over all spots of the batch.

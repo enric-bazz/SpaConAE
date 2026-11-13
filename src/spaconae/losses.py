@@ -71,6 +71,7 @@ class ContrastiveLoss(nn.Module):
         # Exclude the positives from the negative pool
         sim_neg.fill_diagonal_(1e5)
 
+        losses = []
         pos_sim_vec = []
         neg_sim_vec = []
         number_of_negatives = []
@@ -84,9 +85,7 @@ class ContrastiveLoss(nn.Module):
             loss_neg = torch.clamp(self.sim_threshold - negatives, min=0) ** 2
             loss_neg_scalar = loss_neg.mean()
 
-            # NOTE: as in the notebook, `loss` is overwritten at every
-            # iteration, so only the last pair of the batch is returned.
-            loss = loss_pos + loss_neg_scalar
+            losses.append(loss_pos + loss_neg_scalar)
 
             selected = negatives[self.sim_threshold > negatives]
             if selected.numel() > 0:
@@ -95,6 +94,8 @@ class ContrastiveLoss(nn.Module):
                 mean_val = torch.tensor(0.0, device=negatives.device)
             neg_sim_vec.append(mean_val.detach())
             number_of_negatives.append(selected.numel() * 1.0)
+
+        loss = torch.stack(losses).mean()
 
         positives_avg_sim = torch.stack(pos_sim_vec).mean()
         negatives_avg_sim = torch.stack(neg_sim_vec).mean()
