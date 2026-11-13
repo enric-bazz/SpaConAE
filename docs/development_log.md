@@ -4,8 +4,6 @@ This file records how the model came to be: the decisions taken, the alternative
 
 It was rebuilt from summaries of the design discussions held with ChatGPT during development, cross-checked against the notebooks, the report and the code. The order of the early entries is approximate: the discussions were not dated, and the implementation threads ran in parallel with the design ones.
 
-**How to add to it.** New decisions go at the end of the [decision log](#2-decision-log) with the same fields. Bugs and behaviour changes go in [section 6](#6-known-issues-and-changes).
-
 ## Contents
 
 1. [Notation](#1-notation)
@@ -47,7 +45,7 @@ Status labels used below: **Adopted** (in the final model), **Discarded** (tried
 - **Problem.** A concrete architecture to start from.
 - **Decision.** Use the stAI design: an MLP autoencoder for scRNA-seq, a graph-attention encoder with MLP decoder for spatial data, same latent size, and the cross-decoder cosine "consistency" loss. Drop stAI's supervised and task objectives (cell-type classifier, attention-based imputation, MMD, gene-graph loss) to obtain a task-independent, self-supervised model.
 - **Details.** Training uses the intersection of the two gene sets; using the union would introduce modality-specific missing features that would need explicit modelling. The scRNA-seq encoder has one more hidden layer than stAI's to keep up with the spatial encoder.
-- **Status.** Adopted. A skeleton still containing the stAI heads is in `nndl_project_dump/dump.ipynb`.
+- **Status.** Adopted.
 
 ### D3. Same latent size is not a shared latent space
 
@@ -66,13 +64,13 @@ Status labels used below: **Adopted** (in the final model), **Discarded** (tried
 ### D5. Similarity-derived soft alignment with NT-Xent
 
 - **Problem.** First implemented attempt at cross-modal contrastive learning.
-- **What was tried.** Two projection heads $h_{sc}$, $h_{st}$ on top of the latents; cosine similarity matrix between the batches; row-softmax to get a soft alignment; an NT-Xent loss on the result (`scCLR_Vanilla` in `nndl_project_dump/dump.ipynb`).
+- **What was tried.** Two projection heads $h_{sc}$, $h_{st}$ on top of the latents; cosine similarity matrix between the batches; row-softmax to get a soft alignment; an NT-Xent loss on the result.
 - **Why it failed.** Two separate problems. First, with unpaired batches the diagonal is not a positive, and a target computed from the model's own similarity matrix gives no external signal: the model can satisfy it by reproducing its current distribution. Second, NT-Xent weights the most similar negatives the most, and here those are the biologically similar cells that should not be pushed away (see [3.3](#33-why-nt-xent-is-a-poor-fit)).
 - **Status.** Discarded. Reported as the first failed alternative in the report's conclusions.
 
 ### D6. Learnable batch-level alignment matrix
 
-- **What was tried.** A learnable matrix of size $B_{st} \times B_{sc}$, row-softmaxed, projecting the scRNA-seq batch onto the spatial batch (`scCLR_TANGRAM` in `dump.ipynb`).
+- **What was tried.** A learnable matrix of size $B_{st} \times B_{sc}$, row-softmaxed, projecting the scRNA-seq batch onto the spatial batch.
 - **Why it failed.** The matrix is indexed by batch position. With shuffled loaders, row $i$ is a different cell at every step, so the parameter cannot accumulate a consistent alignment; varying cell-type composition across batches made it worse.
 - **Status.** Discarded. Led directly to D7.
 
@@ -88,7 +86,7 @@ Status labels used below: **Adopted** (in the final model), **Discarded** (tried
 - **Decision.** Train $\tilde M$ with the unconstrained Tangram loss: gene-wise and spot-wise cosine similarity between $M^\top S$ and $G$, an entropy regulariser on the rows, and a KL term between the spot density and a uniform prior.
 - **Where.** Either on the latents ($Z_{sc}$, $Z_{st}$) or on the shared genes. Both variants were kept for comparison.
 - **Observations.** In gene space both cosine terms converge near 1. The density term increased in both variants, suggesting the uniform prior is a poor fit; the entropy term appeared non-essential. The latent variant plateaued much lower, but that run was affected by a bug (see [section 6](#6-known-issues-and-changes), issue 1), so the comparison has to be repeated.
-- **Status.** Adopted. A comparison against the Tangram package itself was started in `nndl_project_dump/Alignment dump.ipynb`.
+- **Status.** Adopted. A comparison against the Tangram package itself was started but not completed.
 
 ### D9. Contrastive loss: from filtered triplet to thresholded siamese
 
@@ -100,7 +98,7 @@ Status labels used below: **Adopted** (in the final model), **Discarded** (tried
 
 ### D10. Three-phase training
 
-- **Problem.** Training autoencoders, alignment and contrastive loss together in one phase was unstable. A single model with a `set_training_phase` switch and the alignment loss active throughout is in `nndl_project_dump/Model AllInOne.ipynb`.
+- **Problem.** Training autoencoders, alignment and contrastive loss together in one phase was unstable. The first implementation was a single model with every loss, the alignment loss included, active from the first epoch.
 - **Decision.** (1) Autoencoder initialisation with reconstruction and consistency only. (2) Alignment initialisation: encoders frozen, only $\tilde M$ trained, full batch. (3) Contrastive fine-tuning of the autoencoders, continuing from phases 1 and 2.
 - **Reason.** Contrastive learning should refine a latent space that already has structure, not create it while the alignment is also being discovered. Learning $\tilde M$ on frozen representations avoids a feedback loop between projection and contrastive loss.
 - **Status.** Adopted. In the package each phase is a LightningModule (`src/spaconae/stages/`).
@@ -165,7 +163,7 @@ If a projection head is used, the contrastive loss acts on its output and the en
 | CNN spatial encoder | Convolutions on a rasterised tissue | MERFISH cells have irregular coordinates; a graph is the natural structure. CNNs suit grid-based data such as Visium |
 | Cross-reconstruction as a validation metric | Decode one modality's latent with the other decoder, without gradients, on held-out data | Needs a valid pairing to compare against; as a training loss it is the consistency term |
 | Alignment on raw counts | Tangram reportedly works best on raw counts | Not explored (listed as future work in the report) |
-| Other datasets | osmFISH with Zeisel, seqFISH, Slide-seqV2, squidpy mouse cortex | Explored only at data-loading level in `nndl_project_dump/Data Dump.ipynb` |
+| Other datasets | osmFISH with Zeisel, seqFISH, Slide-seqV2, squidpy mouse cortex | Explored only at data-loading level |
 
 ## 5. Evaluation checklist
 
@@ -198,7 +196,7 @@ All five affect the results in the report, which therefore describe a different 
 | 4 | Decoders re-initialised in phase 3 (only encoders were loaded) | Reconstruction and consistency restarted from random decoders | `ad60c0c` |
 | 5 | Early stopper of phase 2 re-created at every epoch | Never triggered; alignment always ran the maximum number of epochs | `3f809ee` |
 
-Choices made in the fixes that deserve a second look: the EWC importance is now the mean squared gradient accumulated over phase 2, and the early-stopping thresholds (patience 100, 0.1% relative) were guessed from the notebook loss curves.
+Two choices made in the fixes are provisional: the EWC importance is now the mean squared gradient accumulated over phase 2, and the early-stopping thresholds (patience 100, 0.1% relative) were guessed from the notebook loss curves.
 
 ### Open design weaknesses
 
@@ -219,7 +217,7 @@ Not bugs; candidates for the next round of changes.
 
 ## 7. Literature map
 
-Methods mentioned in the discussions, grouped by what they do. The list came from ChatGPT and has **not been verified**: check each reference before citing it, the less-known names in particular.
+Methods mentioned in the discussions, grouped by what they do. The list was collected during the design discussions and has **not been verified** against the original papers.
 
 | Group | Methods | Relation to SpaConAE |
 |---|---|---|
