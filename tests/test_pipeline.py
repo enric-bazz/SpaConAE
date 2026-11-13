@@ -54,3 +54,17 @@ def test_alignment_uses_pretrained_encoders(cfg):
 
     assert torch.allclose(module.S.cpu(), z_sc, atol=1e-5)
     assert torch.allclose(module.G.cpu(), z_st, atol=1e-5)
+
+
+def test_finetuning_starts_from_pretrained_decoders(cfg):
+    cfg["finetune"]["lr"] = 0.0  # no update: fine-tuned weights must equal the pretrained ones
+    ckpt = Path(cfg["checkpoint_dir"])
+
+    run_pretrain(cfg)
+    run_align(cfg)
+    run_finetune(cfg)
+
+    for name in ("scrna_decoder", "spatial_decoder", "scrna_encoder", "spatial_encoder"):
+        before = torch.load(ckpt / f"{name}_weights.pth")
+        after = torch.load(ckpt / f"{name}_weights_finetuned.pth")
+        assert all(torch.equal(before[k], after[k]) for k in before), name

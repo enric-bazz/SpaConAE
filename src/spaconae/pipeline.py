@@ -111,8 +111,8 @@ def run_finetune(cfg):
     importance = ewc_info["importance"][LEGACY_KEY] if c["continual_alignment"] else None
 
     ae = _new_ae(cfg, data)
-    # NOTE: as in the notebook, only the encoders start from the pretrained weights
-    ae.load_weights(ckpt_dir, decoders=False)
+    # Continue from the pretrained autoencoders, decoders included
+    ae.load_weights(ckpt_dir, decoders=True)
 
     module = ContrastiveModule(
         ae,
