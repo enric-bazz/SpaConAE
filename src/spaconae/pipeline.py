@@ -80,6 +80,7 @@ def run_align(cfg):
         encode_data=c["encode_data"],
         lambda_g1=c["lambda_g1"], lambda_g2=c["lambda_g2"], lambda_r=c["lambda_r"], lambda_d=c["lambda_d"],
         lr=c["lr"],
+        accumulate_importance=c.get("accumulate_importance", True),
     )
 
     stopper = LossPlateauStopping(

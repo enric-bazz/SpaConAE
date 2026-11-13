@@ -4,7 +4,7 @@ import torch
 
 from spaconae import CrossModalAE
 from spaconae.data import location_to_edge
-from spaconae.losses import AlignmentMatrixLoss, ContrastiveLoss
+from spaconae.losses import AlignmentMatrixLoss, ContinualLoss, ContrastiveLoss
 from spaconae.nn import AlignmentMatrix
 
 
@@ -73,3 +73,15 @@ def test_contrastive_loss_averages_over_all_pairs():
     assert n_neg == 0
     assert torch.isclose(loss, torch.tensor((1 - (-1)) ** 2 / 4))
     assert abs(pos - 0.5) < 1e-6
+
+
+def test_continual_loss_is_zero_at_reference_and_weighted_by_importance():
+    M = AlignmentMatrix(n_cells=3, n_spots=4)
+    importance = torch.zeros(3, 4)
+    importance[0, 0] = 2.0
+    ewc = ContinualLoss(lambda_ewc=3.0, importance_matrix=importance, M_reference=M.M.detach())
+
+    assert ewc(M.M).item() == 0.0
+    with torch.no_grad():
+        M.M += 1.0  # the reference must not move with the parameter
+    assert torch.isclose(ewc(M.M), torch.tensor(3.0 / 2 * 2.0 * 1.0))

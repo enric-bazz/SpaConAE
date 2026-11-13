@@ -41,6 +41,7 @@ align:
   patience: 50
   min_delta: 0.05
   relative_delta: true
+  accumulate_importance: true   # EWC importance = mean squared gradient over training (+1.1 GB)
   output_file: ewc_alignment.pt
 
 # Phase 3: contrastive fine-tuning

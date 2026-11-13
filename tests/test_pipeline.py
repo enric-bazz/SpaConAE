@@ -23,6 +23,7 @@ def test_full_pipeline(cfg):
     ewc = torch.load(ckpt / "ewc_alignment.pt")
     assert ewc["optimal_params"][LEGACY_KEY].shape == (N_CELLS, N_SPOTS)
     assert ewc["importance"][LEGACY_KEY].shape == (N_CELLS, N_SPOTS)
+    assert ewc["importance"][LEGACY_KEY].sum() > 0
 
     run_finetune(cfg)
     assert (ckpt / "scrna_encoder_weights_finetuned.pth").exists()

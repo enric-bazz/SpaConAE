@@ -70,9 +70,7 @@ class ContrastiveModule(L.LightningModule):
         M_full = self.AlignMat.get_M_full()  # [n_cells, n_spots]
 
         if self.continual_loss is not None:
-            # NOTE: as in the notebook, the penalty receives the softmaxed
-            # matrix while the reference holds logits.
-            continual = self.continual_loss(M_full)
+            continual = self.continual_loss(self.AlignMat.M)  # already scaled by lambda_ewc
         else:
             continual = torch.zeros((), device=x_st.device)
 
@@ -86,7 +84,7 @@ class ContrastiveModule(L.LightningModule):
         loss = (
             self.lambda_recon * (recon_sc + recon_st)
             + self.lambda_contrast * contrastive
-            + self.lambda_ewc * continual
+            + continual
             + self.lambda_consistence * consistence
         )
 

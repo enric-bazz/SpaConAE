@@ -30,10 +30,12 @@ class AlignmentModule(L.LightningModule):
         lambda_r=1.0,
         lambda_d=1.0,
         lr=1e-3,
+        accumulate_importance=True,
     ):
         super().__init__()
         self.encode_data = encode_data
         self.lr = lr
+        self.accumulate_importance = accumulate_importance
 
         if encode_data:
             # The datasets are encoded once, here: `ae` must already hold the
@@ -52,6 +54,11 @@ class AlignmentModule(L.LightningModule):
         n_cells, n_spots = full_scrna.shape[0], full_spatial.shape[0]
         self.alignment = AlignmentMatrix(n_cells=n_cells, n_spots=n_spots)
         self.alignment_loss = AlignmentMatrixLoss(n_spots, lambda_g1, lambda_g2, lambda_r, lambda_d)
+
+        # Running sum of squared gradients of M (one more n_cells x n_spots matrix)
+        self.importance_steps = 0
+        if accumulate_importance:
+            self.register_buffer("importance_sum", torch.zeros(n_cells, n_spots), persistent=False)
 
     def compute_loss(self):
         M_probs, G_pred = self.alignment.project(self.S)
@@ -80,8 +87,22 @@ class AlignmentModule(L.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
 
+    def on_after_backward(self):
+        if self.accumulate_importance:
+            self.importance_sum += self.alignment.M.grad.detach().pow(2)
+            self.importance_steps += 1
+
     def compute_importance(self):
-        """EWC importance of M: squared gradient of the alignment loss."""
+        """EWC importance of each entry of M.
+
+        Mean squared gradient of the alignment loss over the optimisation
+        steps. Without accumulation (or before training) it falls back to the
+        squared gradient at the current M, which is close to zero at an
+        optimum.
+        """
+        if self.accumulate_importance and self.importance_steps > 0:
+            return self.importance_sum / self.importance_steps
+
         self.eval()
         self.zero_grad()
         with torch.enable_grad():

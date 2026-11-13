@@ -105,14 +105,19 @@ class ContrastiveLoss(nn.Module):
 
 
 class ContinualLoss(nn.Module):
-    """EWC-style penalty keeping M close to its Phase-2 solution."""
+    """EWC penalty keeping the logits of M close to their Phase-2 solution.
+
+    ``lambda_ewc / 2 * sum(importance * (M - M_reference)^2)``, with all three
+    matrices in logit space.
+    """
 
     def __init__(self, lambda_ewc, importance_matrix, M_reference):
         super().__init__()
         self.lambda_ewc = lambda_ewc
         self.register_buffer("importance_matrix", importance_matrix, persistent=False)
-        self.register_buffer("M_reference", M_reference, persistent=False)
+        # Cloned: the reference must not follow the parameter it was copied from
+        self.register_buffer("M_reference", M_reference.detach().clone(), persistent=False)
 
-    def forward(self, M_current):
-        loss = torch.sum(self.importance_matrix * (M_current - self.M_reference).pow(2))
+    def forward(self, M_logits):
+        loss = torch.sum(self.importance_matrix * (M_logits - self.M_reference).pow(2))
         return (self.lambda_ewc / 2.0) * loss
