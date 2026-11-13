@@ -1,0 +1,63 @@
+# Variant with the alignment learned on the shared genes (as in Tangram) and
+# kept frozen during contrastive fine-tuning. Values from the notebooks.
+
+seed: 42
+data_dir: data/processed
+checkpoint_dir: checkpoints
+log_dir: logs
+accelerator: auto
+preprocess:
+  labels_xlsx: data/raw/aau5324_moffitt_table-s1.xlsx
+  raw_dir: data/raw
+  n_spots: 10000
+  seed: 42
+model:
+  d_hidden: 64
+  d_latent: 32
+  dropout: 0.1
+pretrain:
+  batch_size_st: 64
+  batch_size_sc: 64
+  knn: 6
+  lambda_recon: 0.1
+  lambda_consistence: 1.0
+  lr: 0.001
+  max_epochs: 250
+align:
+  encode_data: false
+  knn: 10
+  lambda_g1: 1.0
+  lambda_g2: 1.0
+  lambda_r: 0.0
+  lambda_d: 2.0
+  lr: 0.001
+  max_epochs: 700
+  patience: 10
+  min_delta: 0.05
+  relative_delta: true
+  output_file: ewc_alignment_noAE.pt
+finetune:
+  alignment_file: ewc_alignment_noAE.pt
+  continual_alignment: false
+  batch_size_st: 256
+  batch_size_sc: 512
+  knn: 6
+  lambda_recon: 0.001
+  lambda_contrast: 1.0
+  lambda_ewc: 1.0
+  lambda_consistence: 1.0
+  sim_threshold: 0.9
+  lr: 0.001
+  max_epochs: 10
+  negatives_patience: 100
+  output_suffix: _finetuned_noAE
+  save_alignment: false
+probe:
+  weights_suffix: _finetuned_noAE
+  batch_size_sc: 64
+  batch_size_st: 32
+  knn: 10
+  val_fraction: 0.2
+  classifier_hidden: 64
+  lr: 0.001
+  max_epochs: 350

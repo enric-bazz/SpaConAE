@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spaconae"
+version = "0.1.0"
+description = "Spatial Contrastive Autoencoder for joint scRNA-seq and spatial transcriptomics representation learning and cell-to-spot alignment"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Enrico Bazzacco" }]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "torch_geometric>=2.3",
+    "lightning>=2.0",
+    "pynndescent",
+    "anndata",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+preprocess = ["scanpy", "squidpy", "pandas", "openpyxl"]
+dev = ["pytest"]
+
+[project.scripts]
+spaconae = "spaconae.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]

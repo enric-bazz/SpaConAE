@@ -1,0 +1,73 @@
+# SpaConAE on the Moffitt et al. hypothalamus data, latent-space alignment.
+# Values are the ones saved in the notebooks.
+
+seed: 42
+data_dir: data/processed        # the two *_train.h5ad files
+checkpoint_dir: checkpoints
+log_dir: logs
+accelerator: auto
+
+preprocess:
+  labels_xlsx: data/raw/aau5324_moffitt_table-s1.xlsx
+  raw_dir: data/raw
+  n_spots: 10000
+  seed: 42
+
+model:
+  d_hidden: 64
+  d_latent: 32
+  dropout: 0.1
+
+# Phase 1: autoencoder initialisation
+pretrain:
+  batch_size_st: 64
+  batch_size_sc: 64
+  knn: 6
+  lambda_recon: 0.1
+  lambda_consistence: 1.0
+  lr: 1.0e-3
+  max_epochs: 250
+
+# Phase 2: alignment matrix (full batch, one step per epoch)
+align:
+  encode_data: true             # align latents; false = shared-gene space
+  knn: 10
+  lambda_g1: 1.0
+  lambda_g2: 1.0
+  lambda_r: 1.0e-6
+  lambda_d: 2.0
+  lr: 1.0e-3
+  max_epochs: 10000
+  patience: 50
+  min_delta: 0.05
+  relative_delta: true
+  output_file: ewc_alignment.pt
+
+# Phase 3: contrastive fine-tuning
+finetune:
+  alignment_file: ewc_alignment.pt
+  continual_alignment: true     # keep training M under the EWC penalty
+  batch_size_st: 256
+  batch_size_sc: 512
+  knn: 6
+  lambda_recon: 1.0e-2
+  lambda_contrast: 1.0
+  lambda_ewc: 1.0
+  lambda_consistence: 1.0
+  sim_threshold: 0.7            # the report uses 0.88 with 30 epochs
+  lr: 1.0e-3
+  max_epochs: 20
+  negatives_patience: 10
+  output_suffix: _finetuned
+  save_alignment: true          # writes the fine-tuned M (~1 GB)
+
+# Downstream label transfer
+probe:
+  weights_suffix: _finetuned
+  batch_size_sc: 64
+  batch_size_st: 32
+  knn: 10
+  val_fraction: 0.2
+  classifier_hidden: 64
+  lr: 1.0e-3
+  max_epochs: 350
