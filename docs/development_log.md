@@ -78,6 +78,7 @@ Status labels used below: **Adopted** (in the final model), **Discarded** (tried
 
 - **Decision.** One trainable matrix of logits $\tilde M$ for all cells and all spots. Datasets return each item with its global index, the collate functions keep the indices, and a batch uses the block $M[\text{cell ids}][:, \text{spot ids}]$.
 - **Key points.** The softmax is taken over the full row before slicing ([3.2](#32-softmax-over-the-full-row-then-slice)). Index tracking belongs to the dataset, not the encoder. Shuffling is harmless because the block is addressed by global ids.
+- **Initialisation.** Logits are drawn from $\mathcal{N}(0, 1)$; a much smaller scale (0.01), giving near-uniform rows at the start, was also considered.
 - **Cost.** $n_{sc} \times n_{st}$ parameters: 284 million (about 1.1 GB) for 28,390 cells and 10,000 spots.
 - **Status.** Adopted.
 
@@ -149,6 +150,16 @@ A small contrastive loss next to a large reconstruction loss says little about w
 
 If a projection head is used, the contrastive loss acts on its output and the encoder latent stays the representation for downstream use; the head specialises for the contrastive objective. Separate heads per modality are the reasonable default, a shared head being a stronger constraint to test as an ablation.
 
+### 3.7 Five objectives that are easy to conflate
+
+"Integrating scRNA-seq and spatial data" covers different problems, and a method for one does not solve the others: (1) explicit matrix factorisation with non-negativity (NMF, iNMF); (2) latent representation learning, where the latent need not be a factor model; (3) cross-modal alignment of two latents; (4) spatial mapping or deconvolution, i.e. estimating $M$ or cell-type proportions; (5) imputation of unmeasured genes. SpaConAE addresses (2) to (4); imputation would need the scRNA-seq genes outside the shared panel.
+
+### 3.8 Logging pitfalls of the contrastive loss
+
+- The mean positive similarity must be computed over all anchors. Computing it only over anchors that have selected negatives makes it depend on the threshold, although the positives themselves do not.
+- When no negative is selected, the mean negative similarity is undefined. Reporting 0 is misleading; NaN is the honest value. The current loss still logs 0 in that case, so a negative similarity of 0 has to be read together with the number of negatives.
+- With a margin-based loss, the number of selected negatives is not the number contributing gradient; the fraction of active terms is the informative quantity.
+
 ## 4. Ideas not pursued
 
 | Idea | What it would be | Why it was set aside |
@@ -156,7 +167,9 @@ If a projection head is used, the contrastive loss acts on its output and the en
 | NMF / metagene latent | Non-negative latent and decoder, so that latents are factor activations and decoder weights are gene loadings | Different objective (interpretable factors); contrastive loss alone does not give an NMF interpretation |
 | iNMF-style shared and private factors | Shared plus modality-specific latent parts | Not needed for a first shared-space model |
 | $M$ computed from embeddings | $M = \mathrm{softmax}(\mathrm{sim}(Z_{sc}, Z_{st}))$, attention-like, no free matrix | Needs a non-circular training signal (see D5); would remove the $n_{sc} \times n_{st}$ parameter |
-| Cluster-informed contrastive learning | Positives and negatives from existing scRNA-seq annotations; expression-only clusters for spots | Spot labels inferred through the alignment itself would be circular; kept as a possible auxiliary loss |
+| Cluster-informed contrastive learning | Positives and negatives from existing scRNA-seq annotations; for spots, clusters from expression alone (HVG, PCA, Leiden) or from clustering NMF activations | Spot labels inferred through the alignment itself would be circular; kept as a possible auxiliary loss |
+| Distribution-level alignment | Matching the two latent distributions (MMD, Wasserstein, adversarial), or cycle consistency between latent maps $A \to B$ and $B \to A$ | The usual options for unpaired data; MMD is the one stAI uses and was dropped with its other objectives (D2) in favour of pseudo-pairs |
+| Projection in the other direction | Each cell as a mixture of spot latents, $M Z_{st}$, with cells as anchors | Discussed early; projecting cells onto spots matches the Tangram formulation |
 | Keeping individual cells vs. metacells | Compressing cells before mapping | Discards the fine-grained information the mapping needs; the cell stays the mapping unit |
 | Projection heads before the contrastive loss | See 3.6 | Used in D5 only; the final model contrasts latents directly |
 | Alignment loss active in phase 3 | Full-data Tangram loss at every fine-tuning step | Cost; replaced by EWC (D11) |
@@ -167,7 +180,7 @@ If a projection head is used, the contrastive loss acts on its output and the en
 
 ## 5. Evaluation checklist
 
-- [x] Label transfer scRNA-seq to spatial (accuracy, macro-F1, per-class report)
+- [x] Label transfer scRNA-seq to spatial (accuracy, macro-F1, per-class report; confusion matrix still to add)
 - [x] UMAP of the joint latent space coloured by modality
 - [ ] Baselines for the label transfer: raw shared genes, phase-1 encoders only, Tangram
 - [ ] Ablations: without contrastive loss, frozen vs. refined $M$, latent vs. gene-space alignment
@@ -177,6 +190,8 @@ If a projection head is used, the contrastive loss acts on its output and the en
 - [ ] Modality-mixing metrics
 - [ ] Cross-modal nearest-neighbour retrieval (precision@k) using cell-type labels
 - [ ] Alignment and uniformity of the latent space
+- [ ] Marker-gene enrichment in latent clusters
+- [ ] Spatial coherence of the spatial latents
 - [ ] Gradient-norm diagnostics per loss term (3.5)
 - [ ] Generalisation to another dataset pair
 
@@ -222,10 +237,10 @@ Methods mentioned in the discussions, grouped by what they do. The list was coll
 | Group | Methods | Relation to SpaConAE |
 |---|---|---|
 | Mapping by constrained projection | Tangram | Source of the alignment objective |
-| Shared-latent autoencoders | stAI, stPlus | stAI is the architectural starting point |
+| Shared-latent autoencoders | stAI, stPlus; deep CCA variants (DCCA, DCCAE) | stAI is the architectural starting point |
 | Probabilistic generative models | gimVI (scvi-tools), Stereoscope | Alternative approach to integration, imputation and deconvolution |
-| Matrix factorisation | NMF, iNMF / LIGER | Considered and set aside (D1) |
-| Spatial representation with graphs | SEDR, STdGCN, GraphST | Related use of spatial neighbourhoods |
+| Matrix factorisation | NMF, iNMF / LIGER, INSPIRE, FAST | Considered and set aside (D1) |
+| Spatial representation with graphs | SEDR, STdGCN, GraphST, scVGAE (scRNA-seq) | Related use of spatial neighbourhoods |
 | Contrastive learning on spatial data | GraphST, CellContrast | Contrastive objectives, different pairing strategy |
 | Deep clustering of scRNA-seq | scDeepCluster, DESC | Background for the clustering idea (D4) |
 | Transformers and diffusion for imputation | SpaFormer, stEnTrans, SpaDiT, stMCDI | Not used |
