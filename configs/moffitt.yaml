@@ -38,8 +38,8 @@ align:
   lambda_d: 2.0
   lr: 1.0e-3
   max_epochs: 10000
-  patience: 50
-  min_delta: 0.05
+  patience: 100                 # stop after 100 epochs improving less than 0.1% in total
+  min_delta: 1.0e-3
   relative_delta: true
   accumulate_importance: true   # EWC importance = mean squared gradient over training (+1.1 GB)
   output_file: ewc_alignment.pt

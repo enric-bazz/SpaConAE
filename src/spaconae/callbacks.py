@@ -6,8 +6,10 @@ import lightning as L
 class LossPlateauStopping(L.Callback):
     """Stop when the monitored loss stops improving (alignment phase).
 
-    An epoch counts as an improvement when the loss drops by more than
-    ``min_delta`` (or ``best * min_delta`` with ``relative=True``).
+    An epoch counts as an improvement when the loss drops below the best value
+    by more than ``min_delta``, or by more than ``abs(best) * min_delta`` with
+    ``relative=True``. Training stops after ``patience`` consecutive epochs
+    without improvement.
     """
 
     def __init__(self, monitor="total", patience=5, min_delta=0.0, relative=False):
@@ -15,19 +17,18 @@ class LossPlateauStopping(L.Callback):
         self.patience = patience
         self.min_delta = min_delta
         self.relative = relative
-        self._reset()
-
-    def _reset(self):
-        self.best_loss = float("inf")
+        self.best_loss = None
         self.counter = 0
 
     def on_train_epoch_end(self, trainer, pl_module):
-        # NOTE: as in the notebook, where the stopper was instantiated inside
-        # the training loop, its state is reset at every epoch.
-        self._reset()
-
         val_loss = float(trainer.callback_metrics[self.monitor])
-        delta = self.best_loss * self.min_delta if self.relative else self.min_delta
+
+        if self.best_loss is None:
+            self.best_loss = val_loss
+            return
+
+        # abs(): the alignment loss is negative for most of the training
+        delta = abs(self.best_loss) * self.min_delta if self.relative else self.min_delta
 
         if val_loss < self.best_loss - delta:
             self.best_loss = val_loss

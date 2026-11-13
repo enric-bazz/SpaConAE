@@ -32,8 +32,8 @@ align:
   lambda_d: 2.0
   lr: 0.001
   max_epochs: 700
-  patience: 10
-  min_delta: 0.05
+  patience: 100
+  min_delta: 0.001
   relative_delta: true
   accumulate_importance: false
   output_file: ewc_alignment_noAE.pt
