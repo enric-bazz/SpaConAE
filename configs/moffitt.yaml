@@ -2,16 +2,16 @@
 # Values are the ones saved in the notebooks.
 
 seed: 42
-data_dir: data/processed        # the two *_train.h5ad files
 checkpoint_dir: checkpoints
 log_dir: logs
 accelerator: auto
 
-preprocess:
-  labels_xlsx: data/raw/aau5324_moffitt_table-s1.xlsx
-  raw_dir: data/raw
-  n_spots: 10000
-  seed: 42
+# Input: two preprocessed .h5ad files (see "Input format" in the README)
+data:
+  dir: data/processed
+  st_file: moffit_spatial_train.h5ad
+  sc_file: moffit_scRNA_train.h5ad
+  label_key: Cell_class         # obs column, used by the probe only
 
 model:
   d_hidden: 64

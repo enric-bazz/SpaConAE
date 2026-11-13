@@ -5,8 +5,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from spaconae.data.datamodule import SC_FILE, ST_FILE
-
 N_CELLS, N_SPOTS, N_GENES, N_TYPES = 120, 80, 20, 3
 
 
@@ -28,8 +26,8 @@ def data_dir(tmp_path):
 
     out = tmp_path / "data"
     out.mkdir()
-    adata_sc.write(out / SC_FILE)
-    adata_st.write(out / ST_FILE)
+    adata_sc.write(out / "sc.h5ad")
+    adata_st.write(out / "st.h5ad")
     return out
 
 
@@ -37,7 +35,7 @@ def data_dir(tmp_path):
 def cfg(tmp_path, data_dir):
     return {
         "seed": 0,
-        "data_dir": str(data_dir),
+        "data": {"dir": str(data_dir), "st_file": "st.h5ad", "sc_file": "sc.h5ad", "label_key": "Cell_class"},
         "checkpoint_dir": str(tmp_path / "checkpoints"),
         "log_dir": str(tmp_path / "logs"),
         "accelerator": "cpu",

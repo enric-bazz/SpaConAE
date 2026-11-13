@@ -20,9 +20,12 @@ from .stages import AEPretrainModule, AlignmentModule, ContrastiveModule, LabelT
 
 
 def load_config(path, **overrides):
-    """Read a YAML config; non-``None`` keyword arguments override top-level keys."""
+    """Read a YAML config; non-``None`` keyword arguments override its entries."""
     with open(path) as f:
         cfg = yaml.safe_load(f)
+    data_dir = overrides.pop("data_dir", None)
+    if data_dir is not None:
+        cfg["data"]["dir"] = data_dir
     cfg.update({k: v for k, v in overrides.items() if v is not None})
     return cfg
 
@@ -43,6 +46,11 @@ def _trainer(cfg, stage, max_epochs, callbacks=(), **kwargs):
     )
 
 
+def _load_data(cfg, labels=False):
+    d = cfg["data"]
+    return load_pair(d["dir"], d["st_file"], d["sc_file"], label_key=d.get("label_key") if labels else None)
+
+
 def _new_ae(cfg, data):
     return CrossModalAE(d_input=data.n_genes, **cfg["model"])
 
@@ -51,7 +59,7 @@ def run_pretrain(cfg):
     """Phase 1: train the two autoencoders and save their weights."""
     c = cfg["pretrain"]
     L.seed_everything(cfg["seed"])
-    data = load_pair(cfg["data_dir"])
+    data = _load_data(cfg)
     dm = PairedDataModule(data, batch_size_st=c["batch_size_st"], batch_size_sc=c["batch_size_sc"], knn=c["knn"])
 
     ae = _new_ae(cfg, data)
@@ -68,7 +76,7 @@ def run_align(cfg):
     """Phase 2: learn the alignment matrix, save it with its EWC importance."""
     c = cfg["align"]
     L.seed_everything(cfg["seed"])
-    data = load_pair(cfg["data_dir"])
+    data = _load_data(cfg)
     full_sc, full_st, full_edge_index = data.full_batch(knn=c["knn"])
 
     ae = _new_ae(cfg, data)
@@ -102,7 +110,7 @@ def run_finetune(cfg):
     """Phase 3: contrastive fine-tuning, starting from phases 1 and 2."""
     c = cfg["finetune"]
     L.seed_everything(cfg["seed"])
-    data = load_pair(cfg["data_dir"])
+    data = _load_data(cfg)
     dm = PairedDataModule(data, batch_size_st=c["batch_size_st"], batch_size_sc=c["batch_size_sc"], knn=c["knn"])
 
     ckpt_dir = Path(cfg["checkpoint_dir"])
@@ -139,7 +147,7 @@ def run_probe(cfg):
     """Train the classifier on scRNA-seq latents and test it on spatial latents."""
     c = cfg["probe"]
     L.seed_everything(cfg["seed"])
-    data = load_pair(cfg["data_dir"])
+    data = _load_data(cfg, labels=True)
     dm = LabelTransferDataModule(
         data, batch_size_sc=c["batch_size_sc"], batch_size_st=c["batch_size_st"],
         knn=c["knn"], val_fraction=c["val_fraction"],

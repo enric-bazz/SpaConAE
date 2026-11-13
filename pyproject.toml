@@ -23,7 +23,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-preprocess = ["scanpy", "squidpy", "pandas", "openpyxl"]
 dev = ["pytest"]
 
 [project.scripts]

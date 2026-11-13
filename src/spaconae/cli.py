@@ -6,7 +6,7 @@ import argparse
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="spaconae", description=__doc__)
     parser.add_argument(
-        "stage", choices=["preprocess", "pretrain", "align", "finetune", "probe", "all"],
+        "stage", choices=["pretrain", "align", "finetune", "probe", "all"],
         help="'all' runs pretrain, align, finetune and probe in sequence",
     )
     parser.add_argument("--config", required=True, help="YAML configuration file")
@@ -25,11 +25,7 @@ def main(argv=None):
         log_dir=args.log_dir, accelerator=args.accelerator,
     )
 
-    if args.stage == "preprocess":
-        from .data.preprocess import preprocess_moffitt
-
-        preprocess_moffitt(out_dir=cfg["data_dir"], **cfg["preprocess"])
-    elif args.stage == "all":
+    if args.stage == "all":
         run_all(cfg)
     else:
         STAGES[args.stage](cfg)

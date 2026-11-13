@@ -15,11 +15,6 @@ from torch.utils.data import DataLoader, random_split
 from .datasets import RNACollate, RNADataset, SpatialCollate, SpatialDataset, _dense_float32
 from .graph import location_to_edge
 
-# File names written by the preprocessing notebook
-ST_FILE = "moffit_spatial_train.h5ad"
-SC_FILE = "moffit_scRNA_train.h5ad"
-
-
 @dataclass
 class PairedData:
     """In-memory arrays of the two modalities on their shared genes."""
@@ -51,16 +46,32 @@ class PairedData:
         return full_sc, full_st, full_edge_index
 
 
-def load_pair(data_dir, st_file=ST_FILE, sc_file=SC_FILE, label_key="Cell_class"):
-    """Read the two preprocessed ``.h5ad`` files written by the preprocessing step."""
+def load_pair(data_dir, st_file, sc_file, label_key=None):
+    """Read a preprocessed spatial / scRNA-seq pair.
+
+    Both ``.h5ad`` files must hold the same genes in the same order, with
+    ``X`` already normalised. The spatial file needs 2D coordinates in
+    ``obsm["spatial"]``. If ``label_key`` is given, it must be a column of
+    ``obs`` in both files with a shared set of categories (needed only for the
+    label-transfer probe).
+    """
     data_dir = Path(data_dir)
     adata_st = ad.read_h5ad(data_dir / st_file)
     adata_sc = ad.read_h5ad(data_dir / sc_file)
+
     if list(adata_st.var_names) != list(adata_sc.var_names):
-        raise ValueError("The two datasets must share the same genes in the same order")
+        raise ValueError(f"{st_file} and {sc_file} must have the same var_names in the same order")
+    if "spatial" not in adata_st.obsm:
+        raise ValueError(f'{st_file} has no coordinates in obsm["spatial"]')
 
     y_sc = y_st = classes = None
-    if label_key is not None and label_key in adata_sc.obs and label_key in adata_st.obs:
+    if label_key is not None:
+        for name, adata in ((st_file, adata_st), (sc_file, adata_sc)):
+            if label_key not in adata.obs:
+                raise ValueError(f"{name} has no obs column '{label_key}'")
+        unknown = set(adata_st.obs[label_key]) - set(adata_sc.obs[label_key])
+        if unknown:
+            raise ValueError(f"Labels of {st_file} missing from {sc_file}: {sorted(unknown)}")
         le = LabelEncoder()
         y_sc = le.fit_transform(adata_sc.obs[label_key])
         y_st = le.transform(adata_st.obs[label_key])
