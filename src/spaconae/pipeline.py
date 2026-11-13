@@ -72,16 +72,15 @@ def run_align(cfg):
     full_sc, full_st, full_edge_index = data.full_batch(knn=c["knn"])
 
     ae = _new_ae(cfg, data)
+    if c["encode_data"]:
+        # Must happen before the module is built: it encodes the data in __init__
+        ae.load_weights(cfg["checkpoint_dir"], decoders=False)
     module = AlignmentModule(
         ae, full_sc, full_st, full_edge_index,
         encode_data=c["encode_data"],
         lambda_g1=c["lambda_g1"], lambda_g2=c["lambda_g2"], lambda_r=c["lambda_r"], lambda_d=c["lambda_d"],
         lr=c["lr"],
     )
-    if c["encode_data"]:
-        # NOTE: as in the notebook, the pretrained weights are loaded after
-        # the module has been built.
-        ae.load_weights(cfg["checkpoint_dir"], decoders=False)
 
     stopper = LossPlateauStopping(
         monitor="total", patience=c["patience"], min_delta=c["min_delta"], relative=c["relative_delta"]

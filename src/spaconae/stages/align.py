@@ -13,7 +13,7 @@ class AlignmentModule(L.LightningModule):
     """Learns M so that ``M^T S`` reproduces the spatial data ``G``.
 
     With ``encode_data=True`` S and G are the latent representations given by
-    the encoders of ``ae``; otherwise they are the expression matrices on the
+    the (pretrained) encoders of ``ae``; otherwise they are the expression matrices on the
     shared genes (as in Tangram). One optimisation step uses the whole
     datasets, so an epoch is a single step.
     """
@@ -36,9 +36,9 @@ class AlignmentModule(L.LightningModule):
         self.lr = lr
 
         if encode_data:
-            # NOTE: as in the notebook, the datasets are encoded here, at
-            # construction time, with the encoders in their current state and
-            # in training mode.
+            # The datasets are encoded once, here: `ae` must already hold the
+            # pretrained weights. Evaluation mode disables dropout.
+            ae.eval()
             with torch.no_grad():
                 S = ae.SC_encoder(full_scrna)
                 G = ae.ST_encoder(full_spatial, full_edge_index)

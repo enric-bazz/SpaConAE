@@ -4,6 +4,8 @@ from pathlib import Path
 
 import torch
 
+from spaconae import CrossModalAE
+from spaconae.data import load_pair
 from spaconae.nn import LEGACY_KEY
 from spaconae.pipeline import run_align, run_finetune, run_pretrain, run_probe
 
@@ -38,3 +40,16 @@ def test_gene_space_alignment_without_continual(cfg):
     run_align(cfg)
     module = run_finetune(cfg)
     assert not module.AlignMat.M.requires_grad
+
+
+def test_alignment_uses_pretrained_encoders(cfg):
+    run_pretrain(cfg)
+    module = run_align(cfg)
+
+    data = load_pair(cfg["data_dir"])
+    full_sc, full_st, edge_index = data.full_batch(knn=cfg["align"]["knn"])
+    ae = CrossModalAE(d_input=data.n_genes, **cfg["model"]).load_weights(cfg["checkpoint_dir"]).eval()
+    z_sc, z_st = ae.encode(full_sc, full_st, edge_index)
+
+    assert torch.allclose(module.S.cpu(), z_sc, atol=1e-5)
+    assert torch.allclose(module.G.cpu(), z_st, atol=1e-5)
