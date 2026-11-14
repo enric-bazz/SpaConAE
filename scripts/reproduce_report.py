@@ -9,6 +9,12 @@ Outputs (small files only) go to ``--out-dir``: one log per stage, the metric
 CSVs, ``progress.json`` and ``results.json``. Large files (alignment matrices)
 stay in ``--work-dir``. Finished stages are skipped when the script is re-run.
 
+The work can be split over sessions. ``--stages gpu`` runs only the training
+phases; ``--stages cpu`` runs only the probes and the analyses, which need no
+GPU. With ``--keep-alignment`` a finished alignment (about 2 GB) is copied to
+the output dir until its fine-tuning is done, so that an interrupted session
+does not have to repeat it.
+
 Example (Colab, Drive mounted)::
 
     python scripts/reproduce_report.py \\
@@ -75,6 +81,9 @@ class Run:
                 shutil.copy(local, kept)
             elif kept.exists():
                 shutil.copy(kept, local)
+
+    def kept_alignment(self, name):
+        return self.out / f"{name}_ewc_alignment.pt"
 
     def cli(self, stage_name, tree, stage, cfg):
         """Run one pipeline stage of the code in ``tree`` in a subprocess."""
@@ -280,9 +289,14 @@ def main():
     p.add_argument("--legacy-rev", default="76dd3f0", help="commit reproducing the notebooks")
     p.add_argument("--tau", type=float, default=0.88)
     p.add_argument("--finetune-epochs", type=int, default=30)
+    p.add_argument("--stages", choices=["all", "gpu", "cpu"], default="all",
+                   help="gpu: training phases only; cpu: probes and analyses only")
+    p.add_argument("--keep-alignment", action="store_true",
+                   help="copy each alignment to the output dir until its fine-tuning is done")
     p.add_argument("--smoke", action="store_true", help="tiny settings, to test the script")
     run = Run(p.parse_args())
     a = run.a
+    train, analyse = a.stages in ("all", "gpu"), a.stages in ("all", "cpu")
     # Query the GPU without creating a CUDA context in this process
     try:
         gpu = subprocess.check_output(
@@ -313,6 +327,8 @@ def main():
     embeddings = {}  # name -> (checkpoint dir, suffix)
 
     def probe(name, ckpt_dir, suffix):
+        if not analyse:
+            return False
         cfg = json.loads(json.dumps(cfg_new))
         cfg["checkpoint_dir"] = str(ckpt_dir)
         cfg["log_dir"] = str(run.work / name / "logs")
@@ -330,6 +346,8 @@ def main():
     # 2. Phase 1, once; both versions continue from the same autoencoders
     run.keep(ckpt_new, "new", "")  # restores the weights if an earlier session produced them
     if not (ckpt_new / "scrna_encoder_weights.pth").exists():
+        if not train:
+            raise SystemExit("No pretrained weights yet: run the training phases first (--stages gpu)")
         run.forget("pretrain")
     if not run.stage("pretrain", REPO, "pretrain", cfg_new):
         return
@@ -348,19 +366,26 @@ def main():
         ("legacy", run.legacy_tree, cfg_old, ckpt_old, None),
         ("fixed", REPO, cfg_new, ckpt_new, no_accumulation),
     ):
-        ewc = ckpt / "ewc_alignment.pt"
+        ewc, kept = ckpt / "ewc_alignment.pt", run.kept_alignment(name)
         run.keep(ckpt, name, "_finetuned")
         if not (ckpt / "scrna_encoder_weights_finetuned.pth").exists():
+            if not train:
+                continue
             run.forget(f"finetune_{name}")
+            if not ewc.exists() and kept.exists():
+                shutil.copy(kept, ewc)  # alignment finished in an earlier session
             if not ewc.exists():
                 run.forget(f"align_{name}")
             if not run.stage(f"align_{name}", tree, "align", cfg, fallback):
                 continue
+            if a.keep_alignment and not kept.exists():
+                shutil.copy(ewc, kept)
             run.save(f"alignment_{name}", alignment_metrics(load_M(ewc), data.y_sc, data.y_st))
             if not run.stage(f"finetune_{name}", tree, "finetune", cfg):
                 continue
             run.keep(ckpt, name, "_finetuned")
             ewc.unlink()  # 2 GB, no longer needed
+            kept.unlink(missing_ok=True)
         probe(f"{name}_finetuned", ckpt, "_finetuned")
 
     # 4. Gene-space alignment (the comparison of the report's alignment figure)
@@ -369,13 +394,13 @@ def main():
                              accumulate_importance=False, output_file="ewc_alignment_noAE.pt")
     cfg_gene["checkpoint_dir"] = str(run.work / "gene" / "ckpt")
     cfg_gene["log_dir"] = str(run.work / "gene" / "logs")
-    if "alignment_gene_space" not in run.results and run.stage("align_gene_space", REPO, "align", cfg_gene):
+    if train and "alignment_gene_space" not in run.results and run.stage("align_gene_space", REPO, "align", cfg_gene):
         f = Path(cfg_gene["checkpoint_dir"]) / "ewc_alignment_noAE.pt"
         run.save("alignment_gene_space", alignment_metrics(load_M(f), data.y_sc, data.y_st))
         f.unlink()
 
     # 5. Alignment matrices of the original run
-    if a.orig_ckpt_dir and not a.smoke:
+    if analyse and a.orig_ckpt_dir and not a.smoke:
         for key, fname in (("alignment_original_latent", "ewc_alignment.pt"), ("alignment_original_gene_space", "ewc_alignment_noAE.pt")):
             f = Path(a.orig_ckpt_dir) / fname
             if key not in run.results and f.exists():
@@ -384,25 +409,26 @@ def main():
                 run.progress(key, "done")
 
     # 6. Latent-space measures and UMAPs, raw-gene baseline
-    from sklearn.linear_model import LogisticRegression
+    if analyse:
+        from sklearn.linear_model import LogisticRegression
 
-    latent = run.results.get("latent", {})
-    if "raw_genes" not in latent:
-        clf = LogisticRegression(max_iter=2000).fit(data.X_sc, data.y_sc)
-        latent["raw_genes"] = latent_metrics(data.X_sc, data.X_st, data.y_sc, data.y_st)
-        latent["raw_genes"]["linear_probe_acc"] = float(clf.score(data.X_st, data.y_st))
-        run.save("latent", latent)
-    for name, (ckpt_dir, suffix) in embeddings.items():
-        if name in latent:
-            continue
-        z_sc, z_st = encode(run, data, ckpt_dir, suffix, model_cfg)
-        latent[name] = latent_metrics(z_sc, z_st, data.y_sc, data.y_st)
-        latent[name]["umap_saved"] = save_umap(run, name, z_sc, z_st, data.y_sc, data.y_st, data.classes)
-        run.save("latent", latent)
+        latent = run.results.get("latent", {})
+        if "raw_genes" not in latent:
+            clf = LogisticRegression(max_iter=2000).fit(data.X_sc, data.y_sc)
+            latent["raw_genes"] = latent_metrics(data.X_sc, data.X_st, data.y_sc, data.y_st)
+            latent["raw_genes"]["linear_probe_acc"] = float(clf.score(data.X_st, data.y_st))
+            run.save("latent", latent)
+        for name, (ckpt_dir, suffix) in embeddings.items():
+            if name in latent:
+                continue
+            z_sc, z_st = encode(run, data, ckpt_dir, suffix, model_cfg)
+            latent[name] = latent_metrics(z_sc, z_st, data.y_sc, data.y_st)
+            latent[name]["umap_saved"] = save_umap(run, name, z_sc, z_st, data.y_sc, data.y_st, data.classes)
+            run.save("latent", latent)
 
     # 7. Summaries of the logged curves
     run.save("curves", {f.name.replace("_metrics.csv", ""): metric_summary(f) for f in sorted(run.out.glob("*_metrics.csv"))})
-    run.progress("all", "done")
+    run.progress(f"session ({a.stages})", "done")
 
 
 if __name__ == "__main__":
