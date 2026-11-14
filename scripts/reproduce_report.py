@@ -128,10 +128,10 @@ class Run:
         cfg["finetune"].update(sim_threshold=self.a.tau, max_epochs=self.a.finetune_epochs, save_alignment=False)
         if self.a.smoke:
             cfg["model"].update(d_hidden=16, d_latent=8)
-            cfg["pretrain"].update(max_epochs=2, batch_size_st=16, batch_size_sc=16)
-            cfg["align"].update(max_epochs=5)
-            cfg["finetune"].update(max_epochs=2, batch_size_st=16, batch_size_sc=32)
-            cfg["probe"].update(max_epochs=2, batch_size_st=16)
+            cfg["pretrain"].update(max_epochs=2, batch_size_st=16, batch_size_sc=16, knn=4)
+            cfg["align"].update(max_epochs=5, knn=5)
+            cfg["finetune"].update(max_epochs=2, batch_size_st=16, batch_size_sc=32, knn=4)
+            cfg["probe"].update(max_epochs=2, batch_size_st=16, knn=5)
         return cfg
 
 
@@ -159,9 +159,7 @@ def load_data(run):
     sys.path.insert(0, str(REPO / "src"))
     from spaconae.data import load_pair
 
-    d = yaml.safe_load((REPO / "configs" / "moffitt.yaml").read_text())["data"]
-    return load_pair(run.a.data_dir, ST_FILE, SC_FILE, knn=d["knn"], label_key="Cell_class",
-                     section_key=d.get("section_key"))
+    return load_pair(run.a.data_dir, ST_FILE, SC_FILE, label_key="Cell_class")
 
 
 def encode(run, data, ckpt_dir, suffix, model_cfg):
@@ -169,7 +167,7 @@ def encode(run, data, ckpt_dir, suffix, model_cfg):
     from spaconae import CrossModalAE
 
     ae = CrossModalAE(d_input=data.n_genes, **model_cfg).load_weights(ckpt_dir, suffix=suffix, decoders=False).eval()
-    full_sc, full_st, edge = data.full_batch()
+    full_sc, full_st, edge = data.full_batch(knn=10)
     z_sc, z_st = ae.encode(full_sc, full_st, edge)
     return z_sc.numpy(), z_st.numpy()
 
