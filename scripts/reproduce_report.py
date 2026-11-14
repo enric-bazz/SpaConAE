@@ -80,7 +80,8 @@ class Run:
         """Run one pipeline stage of the code in ``tree`` in a subprocess."""
         cfg_file = self.work / f"{stage_name}.yaml"
         cfg_file.write_text(yaml.safe_dump(cfg, sort_keys=False))
-        env = dict(os.environ, PYTHONPATH=str(Path(tree) / "src"), PYTHONUNBUFFERED="1")
+        env = dict(os.environ, PYTHONPATH=str(Path(tree) / "src"), PYTHONUNBUFFERED="1",
+                   PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True")
         cmd = [sys.executable, "-m", "spaconae.cli", stage, "--config", str(cfg_file)]
         t0 = time.time()
         with open(self.out / f"{stage_name}.log", "w") as log:
@@ -198,30 +199,40 @@ def latent_metrics(z_sc, z_st, y_sc, y_st, k=15, max_cells=10000, seed=0):
             "linear_probe_acc": float(clf.score(z_st, y_st))}
 
 
-def alignment_metrics(M_logits, y_sc, y_st, device):
-    """Does the alignment matrix map cells to spots of the same cell type?"""
-    y_sc_t = torch.as_tensor(y_sc, device=device)
-    y_st_t = torch.as_tensor(y_st, device=device)
+def alignment_metrics(M_logits, y_sc, y_st, chunk=2000):
+    """Does the alignment matrix map cells to spots of the same cell type?
+
+    Runs on the CPU in chunks of rows: this process must not hold GPU memory,
+    which the training subprocesses need in full.
+    """
+    y_sc_t, y_st_t = torch.as_tensor(y_sc), torch.as_tensor(y_st)
     n_classes = int(max(y_sc.max(), y_st.max())) + 1
+    onehot = torch.nn.functional.one_hot(y_sc_t, n_classes).float()
+    n_cells, n_spots = M_logits.shape
+    top_spot = torch.empty(n_cells, dtype=torch.long)
+    max_p = torch.empty(n_cells)
+    entropy = torch.empty(n_cells)
+    spot_mass = torch.zeros(n_spots, n_classes)
     with torch.no_grad():
-        M = torch.softmax(M_logits.to(device), dim=1)
-        # cell -> its most probable spot
-        cell_acc = (y_st_t[M.argmax(1)] == y_sc_t).float().mean().item()
-        # spot -> label with the largest probability mass (Tangram-style annotation projection)
-        onehot = torch.nn.functional.one_hot(y_sc_t, n_classes).float()
-        spot_acc = ((M.t() @ onehot).argmax(1) == y_st_t).float().mean().item()
-        max_p = M.max(1).values
-        entropy = -(M * torch.log(M + 1e-30)).sum(1).mean().item()
-        out = {"cell_top_spot_same_type": cell_acc, "spot_label_projection_acc": spot_acc,
-               "mean_max_prob": max_p.mean().item(), "mean_row_entropy": entropy,
-               "uniform_entropy": float(np.log(M.shape[1]))}
-        del M
+        for i in range(0, n_cells, chunk):
+            M = torch.softmax(M_logits[i:i + chunk].float(), dim=1)
+            max_p[i:i + chunk], top_spot[i:i + chunk] = M.max(1)
+            entropy[i:i + chunk] = -(M * torch.log(M + 1e-30)).sum(1)
+            spot_mass += M.t() @ onehot[i:i + chunk]
     # chance level for the cell -> spot agreement
     p_st = np.bincount(y_st, minlength=n_classes) / len(y_st)
     p_sc = np.bincount(y_sc, minlength=n_classes) / len(y_sc)
-    out["chance_cell_top_spot"] = float((p_sc * p_st).sum())
-    out["majority_class_spot_acc"] = float(p_st.max())
-    return out
+    return {
+        # cell -> its most probable spot
+        "cell_top_spot_same_type": (y_st_t[top_spot] == y_sc_t).float().mean().item(),
+        # spot -> label with the largest probability mass (Tangram-style annotation projection)
+        "spot_label_projection_acc": (spot_mass.argmax(1) == y_st_t).float().mean().item(),
+        "mean_max_prob": max_p.mean().item(),
+        "mean_row_entropy": entropy.mean().item(),
+        "uniform_entropy": float(np.log(n_spots)),
+        "chance_cell_top_spot": float((p_sc * p_st).sum()),
+        "majority_class_spot_acc": float(p_st.max()),
+    }
 
 
 def load_M(path):
@@ -272,14 +283,18 @@ def main():
     p.add_argument("--smoke", action="store_true", help="tiny settings, to test the script")
     run = Run(p.parse_args())
     a = run.a
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Query the GPU without creating a CUDA context in this process
+    try:
+        gpu = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        gpu = None
 
     head = subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], text=True).strip()
     if not run.legacy_tree.exists():
         subprocess.check_call(["git", "-C", str(REPO), "worktree", "add", "--detach", str(run.legacy_tree), a.legacy_rev])
     run.save("environment", {
-        "head": head, "legacy_rev": a.legacy_rev, "torch": torch.__version__, "device": device,
-        "gpu": torch.cuda.get_device_name(0) if device == "cuda" else None,
+        "head": head, "legacy_rev": a.legacy_rev, "torch": torch.__version__, "gpu": gpu,
         "tau": a.tau, "finetune_epochs": a.finetune_epochs, "smoke": a.smoke,
     })
 
@@ -341,7 +356,7 @@ def main():
                 run.forget(f"align_{name}")
             if not run.stage(f"align_{name}", tree, "align", cfg, fallback):
                 continue
-            run.save(f"alignment_{name}", alignment_metrics(load_M(ewc), data.y_sc, data.y_st, device))
+            run.save(f"alignment_{name}", alignment_metrics(load_M(ewc), data.y_sc, data.y_st))
             if not run.stage(f"finetune_{name}", tree, "finetune", cfg):
                 continue
             run.keep(ckpt, name, "_finetuned")
@@ -356,7 +371,7 @@ def main():
     cfg_gene["log_dir"] = str(run.work / "gene" / "logs")
     if "alignment_gene_space" not in run.results and run.stage("align_gene_space", REPO, "align", cfg_gene):
         f = Path(cfg_gene["checkpoint_dir"]) / "ewc_alignment_noAE.pt"
-        run.save("alignment_gene_space", alignment_metrics(load_M(f), data.y_sc, data.y_st, device))
+        run.save("alignment_gene_space", alignment_metrics(load_M(f), data.y_sc, data.y_st))
         f.unlink()
 
     # 5. Alignment matrices of the original run
@@ -365,7 +380,7 @@ def main():
             f = Path(a.orig_ckpt_dir) / fname
             if key not in run.results and f.exists():
                 run.progress(key, "started")
-                run.save(key, alignment_metrics(load_M(f), data.y_sc, data.y_st, device))
+                run.save(key, alignment_metrics(load_M(f), data.y_sc, data.y_st))
                 run.progress(key, "done")
 
     # 6. Latent-space measures and UMAPs, raw-gene baseline
