@@ -7,7 +7,7 @@ SpaConAE embeds scRNA-seq cells and spatial transcriptomics spots in a shared la
 
 ```
 src/spaconae/     Python package (PyTorch Lightning)
-  data/           datasets, kNN spatial graph, data modules
+  data/           datasets, spatial graph, data modules
   nn/             encoders, decoders, alignment matrix, classifier
   losses.py       consistency, alignment, contrastive and continual losses
   model.py        CrossModalAE: the two autoencoders
@@ -32,6 +32,8 @@ tests/            unit tests and an end-to-end smoke test on synthetic data
 | Evaluation | `LabelTransferModule` | classifier on frozen scRNA-seq latents | cross-entropy; tested on spatial latents |
 
 The scRNA-seq encoder is an MLP; the spatial encoder is an MLP followed by a graph attention layer on the k-nearest-neighbour graph of the spots. Both decoders are MLPs.
+
+The spatial graph is built once on all spots (`data.knn` neighbours each) and is the same in every phase and at inference. A mini-batch of spots is loaded together with the neighbours of its spots, so each spot is encoded exactly as in the full graph.
 
 ## Installation
 
@@ -63,7 +65,7 @@ spaconae all        --config configs/moffitt.yaml   # pretrain, align, finetune,
 The package is not tied to a dataset. It reads two preprocessed `.h5ad` files from `data.dir`, named by `data.st_file` and `data.sc_file` in the config:
 
 - both hold the **same genes in the same order** (`var_names`), with `X` already normalised;
-- the spatial file has 2D coordinates in `obsm["spatial"]`;
+- the spatial file has 2D coordinates in `obsm["spatial"]`; if its spots come from several tissue sections, `data.section_key` names the `obs` column that tells them apart, and the graph connects spots of the same section only;
 - for the label-transfer probe only, both have the `obs` column named by `data.label_key`, and every spatial label also occurs in the scRNA-seq file.
 
 ### Moffitt et al. data
@@ -94,4 +96,5 @@ The first version of the package reproduces the behaviour of the notebooks. Metr
 - **Contrastive loss over the whole batch.** The notebook returned the loss of the last spot of each batch only; the loss is now the mean over all spots of the batch.
 - **Working EWC penalty.** The notebook compared the softmaxed `M` with reference logits, the reference shared memory with the trained parameter, the importance was a single squared gradient taken at the optimum (close to zero) and `lambda_ewc` was applied twice. The penalty now acts on logits against a fixed copy, is scaled once, and the importance is the mean squared gradient accumulated during the alignment phase (`align.accumulate_importance`), as described in the report.
 - **Decoders kept in fine-tuning.** The notebook loaded only the pretrained encoders in the contrastive phase and re-initialised the decoders; both are now loaded.
+- **One spatial graph.** The notebooks rebuilt an approximate kNN graph among the random spots of each mini-batch (with a different k at inference), so the "neighbours" of a spot were not its neighbours in the tissue. The graph is now exact, built once on the whole dataset within each section, and shared by all phases. Edges also changed direction: a spot now aggregates its own k nearest spots.
 - **Early stopping of the alignment phase.** The notebook re-created the stopper at every epoch, so it never triggered, and its relative threshold did not handle the first epoch or negative losses. The stopper now keeps its state. The thresholds in the configs (`patience: 100`, `min_delta: 1e-3`) were chosen from the loss curves logged in the notebook and have not been tuned.

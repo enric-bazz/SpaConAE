@@ -1,6 +1,6 @@
 from .datamodule import LabelTransferDataModule, PairedData, PairedDataModule, load_pair
-from .datasets import RNACollate, RNADataset, SpatialCollate, SpatialDataset
-from .graph import location_to_edge
+from .datasets import RNACollate, RNADataset, SpatialDataset
+from .graph import full_edge_index, knn_neighbors, seed_subgraph
 
 __all__ = [
     "LabelTransferDataModule",
@@ -8,8 +8,9 @@ __all__ = [
     "PairedDataModule",
     "RNACollate",
     "RNADataset",
-    "SpatialCollate",
     "SpatialDataset",
+    "full_edge_index",
+    "knn_neighbors",
     "load_pair",
-    "location_to_edge",
+    "seed_subgraph",
 ]

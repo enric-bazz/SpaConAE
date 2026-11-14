@@ -124,6 +124,15 @@ Status labels used below: **Adopted** (in the final model), **Discarded** (tried
 - **Decision.** Port the notebooks to an installable package with PyTorch Lightning, first reproducing their behaviour (commit `76dd3f0`), then fixing the known bugs in separate commits. Dataset-specific preprocessing lives in `scripts/`, and the package only defines an input format (commit `b855c26`).
 - **Status.** Adopted.
 
+### D14. One spatial graph, mini-batches of seed spots
+
+- **Problem.** The kNN graph was rebuilt among the random spots of each mini-batch (64 or 256 out of 10,000), so the graph attention layer aggregated spots that are far apart in the tissue. Each phase also saw a different graph: k = 6 on random batches in phases 1 and 3, k = 10 on all spots in phase 2, k = 10 on consecutive blocks of 32 spots in the probe.
+- **Options.** (a) Encode all spots at every step. (b) Spatial tiles as batches. (c) Batches of randomly drawn seed spots, loaded with their neighbours in a graph built once.
+- **Decision.** (c). The graph is an exact kNN (k = 6) computed once, within each tissue section, and stored as an array of neighbour indices. A batch holds the seed spots followed by their neighbours and the neighbour-to-seed edges; the latents of the seeds only are kept.
+- **Reason.** With a single graph layer the latent of a seed depends only on its own neighbours, so (c) gives exactly the full-graph result at the cost of at most k + 1 times the batch size. (a) ties the cost of a step to the size of the dataset. (b) loses the neighbours across tile borders and makes a batch spatially homogeneous, which is unwanted when the other items of a batch act as negatives.
+- **Details.** A spot now aggregates its k nearest spots. Before, the edges ran the other way (a spot received messages from the spots that listed it as a neighbour, a varying number) and the approximate search returned the spot itself among its neighbours. A second graph layer would need the neighbours of the neighbours in the batch.
+- **Status.** Adopted. Previously trained weights were fitted on the old graphs and should be retrained.
+
 ## 3. Design notes that still hold
 
 ### 3.1 Row and column cosine terms are not redundant
@@ -218,8 +227,7 @@ Two choices made in the fixes are provisional: the EWC importance is now the mea
 Not bugs; candidates for the next round of changes.
 
 - **Composition of the positives.** A pseudo-spot is built from the cells of the current scRNA-seq batch only (512 of 28,390), not from the cells $M$ assigns to that spot. Positives are therefore mostly mixtures of unrelated cells.
-- **Spatial graph.** In training the k-nearest-neighbour graph is rebuilt among the random spots of each mini-batch; at inference it is built on the whole patch with a different k.
-- **Spatial patch.** It is selected on 2D coordinates although the MERFISH data span several Bregma sections. Whether the patch mixes sections has not been checked.
+- **Spatial patch.** It is selected on 2D coordinates although the MERFISH data span several Bregma sections. Whether the patch mixes sections has not been checked; the graph itself no longer connects different sections (D14).
 - **Preprocessing order.** scRNA-seq counts are restricted to the 155 shared genes before total-count normalisation, so library size is computed on the panel only. Discarding the other genes also rules out imputation.
 - **Scaling.** The free alignment matrix grows as $n_{sc} \times n_{st}$.
 - **Saved configuration.** The contrastive notebook as committed uses $\tau = 0.7$ and 20 epochs; the report states $\tau = 0.88$ and 30 epochs.
@@ -229,6 +237,7 @@ Not bugs; candidates for the next round of changes.
 | Date | Change |
 |---|---|
 | 2026-11-13 | Package created from the notebooks; five bug fixes; preprocessing moved to `scripts/`; this log written |
+| 2026-11-14 | Spatial graph built once per dataset and section; mini-batches of seed spots with their neighbours (D14) |
 
 ## 7. Literature map
 

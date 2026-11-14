@@ -81,8 +81,14 @@ class EncoderST(nn.Module):
             d_input=d_latent, num_heads=num_heads, n_layers=n_layers, dropout=dropout, residual=residual
         )
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, n_seeds=None):
+        """Latents of all nodes, or of the first ``n_seeds`` only.
+
+        ``n_seeds`` is for the sampled subgraphs of ``SpatialDataset``, where
+        only the leading nodes have their neighbourhood in the batch.
+        """
         z = self.pre_fc(x)
         z = self.gat_layer(z, edge_index)
-        z = self.post_fc(z)
-        return z
+        if n_seeds is not None:
+            z = z[:n_seeds]
+        return self.post_fc(z)

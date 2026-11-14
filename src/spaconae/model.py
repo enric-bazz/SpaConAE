@@ -37,10 +37,10 @@ class CrossModalAE(nn.Module):
         self.SC_encoder = EncoderSC(d_input=d_input, d_hidden=d_hidden, d_latent=d_latent, dropout=dropout)
         self.SC_decoder = DecoderSC(d_latent=d_latent, d_hidden=d_hidden, d_input=d_input)
 
-    def forward(self, x_sc, x_st, edge_index_st):
-        """Encode and reconstruct both modalities."""
+    def forward(self, x_sc, x_st, edge_index_st, n_seeds=None):
+        """Encode and reconstruct both modalities (spatial: see ``EncoderST.forward``)."""
         z_sc = self.SC_encoder(x_sc)
-        z_st = self.ST_encoder(x_st, edge_index_st)
+        z_st = self.ST_encoder(x_st, edge_index_st, n_seeds)
         return z_sc, z_st, self.SC_decoder(z_sc), self.ST_decoder(z_st)
 
     @torch.no_grad()

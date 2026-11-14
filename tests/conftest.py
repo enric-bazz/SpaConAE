@@ -23,6 +23,7 @@ def data_dir(tmp_path):
     adata_sc = make(N_CELLS)
     adata_st = make(N_SPOTS)
     adata_st.obsm["spatial"] = rng.uniform(size=(N_SPOTS, 2))
+    adata_st.obs["section"] = np.repeat(["a", "b"], N_SPOTS // 2)
 
     out = tmp_path / "data"
     out.mkdir()
@@ -35,31 +36,32 @@ def data_dir(tmp_path):
 def cfg(tmp_path, data_dir):
     return {
         "seed": 0,
-        "data": {"dir": str(data_dir), "st_file": "st.h5ad", "sc_file": "sc.h5ad", "label_key": "Cell_class"},
+        "data": {"dir": str(data_dir), "st_file": "st.h5ad", "sc_file": "sc.h5ad", "label_key": "Cell_class",
+                 "knn": 4, "section_key": "section"},
         "checkpoint_dir": str(tmp_path / "checkpoints"),
         "log_dir": str(tmp_path / "logs"),
         "accelerator": "cpu",
         "progress_bar": False,
         "model": {"d_hidden": 16, "d_latent": 8, "dropout": 0.1},
         "pretrain": {
-            "batch_size_st": 16, "batch_size_sc": 16, "knn": 4,
+            "batch_size_st": 16, "batch_size_sc": 16,
             "lambda_recon": 0.1, "lambda_consistence": 1.0, "lr": 1e-3, "max_epochs": 2,
         },
         "align": {
-            "encode_data": True, "knn": 5,
+            "encode_data": True,
             "lambda_g1": 1.0, "lambda_g2": 1.0, "lambda_r": 1e-6, "lambda_d": 2.0,
             "lr": 1e-2, "max_epochs": 5, "patience": 50, "min_delta": 0.05, "relative_delta": True,
             "output_file": "ewc_alignment.pt",
         },
         "finetune": {
             "alignment_file": "ewc_alignment.pt", "continual_alignment": True,
-            "batch_size_st": 16, "batch_size_sc": 32, "knn": 4,
+            "batch_size_st": 16, "batch_size_sc": 32,
             "lambda_recon": 1e-2, "lambda_contrast": 1.0, "lambda_ewc": 1.0, "lambda_consistence": 1.0,
             "sim_threshold": 0.7, "lr": 1e-3, "max_epochs": 2, "negatives_patience": 10,
             "output_suffix": "_finetuned", "save_alignment": True,
         },
         "probe": {
-            "weights_suffix": "_finetuned", "batch_size_sc": 16, "batch_size_st": 16, "knn": 5,
+            "weights_suffix": "_finetuned", "batch_size_sc": 16, "batch_size_st": 16,
             "val_fraction": 0.2, "classifier_hidden": 16, "lr": 1e-2, "max_epochs": 3,
         },
     }

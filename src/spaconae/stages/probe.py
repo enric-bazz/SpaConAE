@@ -54,7 +54,7 @@ class LabelTransferModule(L.LightningModule):
 
     def test_step(self, batch, batch_idx):
         x, edge_index, _, y = batch
-        logits = self.classifier(self.ST_encoder(x, edge_index))
+        logits = self.classifier(self.ST_encoder(x, edge_index, n_seeds=len(y)))
         self._test_outputs.append((logits.argmax(1).cpu(), y.cpu()))
 
     def on_test_epoch_end(self):

@@ -12,6 +12,8 @@ data:
   st_file: moffit_spatial_train.h5ad
   sc_file: moffit_scRNA_train.h5ad
   label_key: Cell_class         # obs column, used by the probe only
+  knn: 6                        # spatial graph, the same in every phase
+  section_key: Bregma           # obs column of the spatial file: neighbours within a section (optional)
 
 model:
   d_hidden: 64
@@ -22,7 +24,6 @@ model:
 pretrain:
   batch_size_st: 64
   batch_size_sc: 64
-  knn: 6
   lambda_recon: 0.1
   lambda_consistence: 1.0
   lr: 1.0e-3
@@ -31,7 +32,6 @@ pretrain:
 # Phase 2: alignment matrix (full batch, one step per epoch)
 align:
   encode_data: true             # align latents; false = shared-gene space
-  knn: 10
   lambda_g1: 1.0
   lambda_g2: 1.0
   lambda_r: 1.0e-6
@@ -50,7 +50,6 @@ finetune:
   continual_alignment: true     # keep training M under the EWC penalty
   batch_size_st: 256
   batch_size_sc: 512
-  knn: 6
   lambda_recon: 1.0e-2
   lambda_contrast: 1.0
   lambda_ewc: 1.0
@@ -67,7 +66,6 @@ probe:
   weights_suffix: _finetuned
   batch_size_sc: 64
   batch_size_st: 32
-  knn: 10
   val_fraction: 0.2
   classifier_hidden: 64
   lr: 1.0e-3
