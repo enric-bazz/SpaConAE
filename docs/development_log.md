@@ -222,10 +222,25 @@ All five affect the results in the report, which therefore describe a different 
 
 Two choices made in the fixes are provisional: the EWC importance is now the mean squared gradient accumulated over phase 2, and the early-stopping thresholds (patience 100, 0.1% relative) were guessed from the notebook loss curves.
 
+### How the package differs from the notebooks
+
+The first version of the package (`76dd3f0`) reproduces the behaviour of the notebooks, bugs included. Since then:
+
+- **Logging.** Metrics are logged without the loss coefficients.
+- **Issue 1.** The pretrained encoder weights are loaded before the data are encoded for the alignment, and the encoders run in evaluation mode.
+- **Issue 2.** The contrastive loss is the mean over all spots of the batch.
+- **Issue 3.** The EWC penalty acts on logits against a fixed copy of the phase-2 solution and is scaled once. The importance is the mean squared gradient accumulated during the alignment phase (`align.accumulate_importance`), as described in the report.
+- **Issue 4.** Fine-tuning loads the pretrained decoders together with the encoders.
+- **Issue 5.** The stopper of the alignment phase keeps its state between epochs, and its relative threshold handles the first epoch and negative losses.
+- **Preprocessing.** The Moffitt preprocessing is a script; the package only defines an input format (D13).
+- **Spatial graph.** One exact graph per dataset and section instead of an approximate graph per mini-batch, with the edges running from the k nearest spots to the spot (D14).
+
 ### Open design weaknesses
 
 Not bugs; candidates for the next round of changes.
 
+- **Two roles of the alignment.** The model mixes two uses of Tangram: (1) learning a latent space on which a mapping is then computed, as two separate steps, and (2) using the mapping, followed by a contrastive loss, as a task-agnostic replacement for task-specific losses (imputed-gene correlation, label-transfer accuracy) when training the autoencoders. With the alignment fitted on the latents, the mapping validates the autoencoders that are supposed to provide the better space for the mapping: a loop. Gradients from the contrastive term refine the encoders and, through the continual term, the mapping; the decoders receive none.
+- **Planned: the alignment as a sampler.** Instead of contrasting a spot with its reconstruction $M^\top Z_{sc}$, which mostly restates the alignment objective, a Tangram mapping pretrained independently of the autoencoders (on the original genes, or in an NMF space if its assumptions hold) selects the positives: real cells drawn for each spot from the mapping, and possibly spots for each cell. The mapping then stays fixed and no gradient needs to reach it.
 - **Composition of the positives.** A pseudo-spot is built from the cells of the current scRNA-seq batch only (512 of 28,390), not from the cells $M$ assigns to that spot. Positives are therefore mostly mixtures of unrelated cells.
 - **Spatial patch.** It is selected on 2D coordinates although the MERFISH data span several Bregma sections. Whether the patch mixes sections has not been checked; the graph itself no longer connects different sections (D14).
 - **Preprocessing order.** scRNA-seq counts are restricted to the 155 shared genes before total-count normalisation, so library size is computed on the panel only. Discarding the other genes also rules out imputation.
@@ -238,6 +253,7 @@ Not bugs; candidates for the next round of changes.
 |---|---|
 | 2026-11-13 | Package created from the notebooks; five bug fixes; preprocessing moved to `scripts/`; this log written |
 | 2026-11-14 | Spatial graph built once per dataset and section; mini-batches of seed spots with their neighbours (D14) |
+| 2026-11-16 | `reproduce_report.py` pinned to the bug-fix commit; `compare_versions.py` added for later versions; notebook differences moved here from the README |
 
 ## 7. Literature map
 

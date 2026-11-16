@@ -86,15 +86,6 @@ Disk usage to keep in mind: the alignment matrix has `n_cells x n_spots` entries
 pytest
 ```
 
-## Differences from the notebooks
+## Documentation
 
-The reasoning behind the design, the alternatives that were tried and the open issues are in the [development log](docs/development_log.md).
-
-The first version of the package reproduces the behaviour of the notebooks. Metrics are logged without the loss coefficients. Later changes:
-
-- **Alignment on pretrained latents.** In the notebook the datasets were encoded when the alignment model was constructed, before the pretrained encoder weights were loaded and with dropout active, so `M` was fitted on the output of randomly initialised encoders. The weights are now loaded first and the encoders run in evaluation mode.
-- **Contrastive loss over the whole batch.** The notebook returned the loss of the last spot of each batch only; the loss is now the mean over all spots of the batch.
-- **Working EWC penalty.** The notebook compared the softmaxed `M` with reference logits, the reference shared memory with the trained parameter, the importance was a single squared gradient taken at the optimum (close to zero) and `lambda_ewc` was applied twice. The penalty now acts on logits against a fixed copy, is scaled once, and the importance is the mean squared gradient accumulated during the alignment phase (`align.accumulate_importance`), as described in the report.
-- **Decoders kept in fine-tuning.** The notebook loaded only the pretrained encoders in the contrastive phase and re-initialised the decoders; both are now loaded.
-- **One spatial graph.** The notebooks rebuilt an approximate kNN graph among the random spots of each mini-batch (with a different k at inference), so the "neighbours" of a spot were not its neighbours in the tissue. The graph is now exact, built once on the whole dataset within each section, and shared by all phases. Edges also changed direction: a spot now aggregates its own k nearest spots.
-- **Early stopping of the alignment phase.** The notebook re-created the stopper at every epoch, so it never triggered, and its relative threshold did not handle the first epoch or negative losses. The stopper now keeps its state. The thresholds in the configs (`patience: 100`, `min_delta: 1e-3`) were chosen from the loss curves logged in the notebook and have not been tuned.
+The [development log](docs/development_log.md) records the design decisions, the alternatives that were tried, how the package differs from the notebooks and the open issues.
