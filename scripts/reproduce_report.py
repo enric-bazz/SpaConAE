@@ -2,8 +2,10 @@
 
 Runs, on the Moffitt data, the pipeline of the report twice from the same
 pretrained autoencoders: once with the code as ported from the notebooks
-(``--legacy-rev``, known bugs included) and once with the current code. It also
-evaluates the checkpoints of the original run when they are available.
+(``--legacy-rev``, known bugs included) and once with the bugs fixed
+(``--fixed-rev``). Both are fixed commits, checked out in the work dir, so the
+result does not depend on later changes to the model. It also evaluates the
+checkpoints of the original run when they are available.
 
 Outputs (small files only) go to ``--out-dir``: one log per stage, the metric
 CSVs, ``progress.json`` and ``results.json``. Large files (alignment matrices)
@@ -52,6 +54,7 @@ class Run:
         self.results_file = self.out / "results.json"
         self.results = json.loads(self.results_file.read_text()) if self.results_file.exists() else {}
         self.legacy_tree = self.work / "legacy_src"
+        self.fixed_tree = self.work / "fixed_src"
 
     def save(self, key, value):
         self.results[key] = value
@@ -165,7 +168,7 @@ def metric_summary(csv_file):
 # --------------------------------------------------------------------------- analyses
 
 def load_data(run):
-    sys.path.insert(0, str(REPO / "src"))
+    sys.path.insert(0, str(run.fixed_tree / "src"))
     from spaconae.data import load_pair
 
     return load_pair(run.a.data_dir, ST_FILE, SC_FILE, label_key="Cell_class")
@@ -287,6 +290,7 @@ def main():
     p.add_argument("--out-dir", required=True)
     p.add_argument("--work-dir", required=True)
     p.add_argument("--legacy-rev", default="76dd3f0", help="commit reproducing the notebooks")
+    p.add_argument("--fixed-rev", default="c7ba257", help="commit with the bugs of the notebooks fixed")
     p.add_argument("--tau", type=float, default=0.88)
     p.add_argument("--finetune-epochs", type=int, default=30)
     p.add_argument("--stages", choices=["all", "gpu", "cpu"], default="all",
@@ -305,10 +309,11 @@ def main():
         gpu = None
 
     head = subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], text=True).strip()
-    if not run.legacy_tree.exists():
-        subprocess.check_call(["git", "-C", str(REPO), "worktree", "add", "--detach", str(run.legacy_tree), a.legacy_rev])
+    for tree, rev in ((run.legacy_tree, a.legacy_rev), (run.fixed_tree, a.fixed_rev)):
+        if not tree.exists():
+            subprocess.check_call(["git", "-C", str(REPO), "worktree", "add", "--detach", str(tree), rev])
     run.save("environment", {
-        "head": head, "legacy_rev": a.legacy_rev, "torch": torch.__version__, "gpu": gpu,
+        "head": head, "legacy_rev": a.legacy_rev, "fixed_rev": a.fixed_rev, "torch": torch.__version__, "gpu": gpu,
         "tau": a.tau, "finetune_epochs": a.finetune_epochs, "smoke": a.smoke,
     })
 
@@ -320,7 +325,7 @@ def main():
         "cell_class_counts": np.bincount(data.y_sc).tolist(),
     })
 
-    cfg_new = run.config(REPO, "fixed", legacy=False)
+    cfg_new = run.config(run.fixed_tree, "fixed", legacy=False)
     cfg_old = run.config(run.legacy_tree, "legacy", legacy=True)
     model_cfg = cfg_new["model"]
     ckpt_new, ckpt_old = Path(cfg_new["checkpoint_dir"]), Path(cfg_old["checkpoint_dir"])
@@ -333,7 +338,7 @@ def main():
         cfg["checkpoint_dir"] = str(ckpt_dir)
         cfg["log_dir"] = str(run.work / name / "logs")
         cfg["probe"]["weights_suffix"] = suffix
-        ok = run.stage(f"probe_{name}", REPO, "probe", cfg)
+        ok = run.stage(f"probe_{name}", run.fixed_tree, "probe", cfg)
         if ok:
             embeddings[name] = (ckpt_dir, suffix)
         return ok
@@ -349,7 +354,7 @@ def main():
         if not train:
             raise SystemExit("No pretrained weights yet: run the training phases first (--stages gpu)")
         run.forget("pretrain")
-    if not run.stage("pretrain", REPO, "pretrain", cfg_new):
+    if not run.stage("pretrain", run.fixed_tree, "pretrain", cfg_new):
         return
     run.keep(ckpt_new, "new", "")
     ckpt_old.mkdir(parents=True, exist_ok=True)
@@ -364,7 +369,7 @@ def main():
 
     for name, tree, cfg, ckpt, fallback in (
         ("legacy", run.legacy_tree, cfg_old, ckpt_old, None),
-        ("fixed", REPO, cfg_new, ckpt_new, no_accumulation),
+        ("fixed", run.fixed_tree, cfg_new, ckpt_new, no_accumulation),
     ):
         ewc, kept = ckpt / "ewc_alignment.pt", run.kept_alignment(name)
         run.keep(ckpt, name, "_finetuned")
@@ -394,7 +399,7 @@ def main():
                              accumulate_importance=False, output_file="ewc_alignment_noAE.pt")
     cfg_gene["checkpoint_dir"] = str(run.work / "gene" / "ckpt")
     cfg_gene["log_dir"] = str(run.work / "gene" / "logs")
-    if train and "alignment_gene_space" not in run.results and run.stage("align_gene_space", REPO, "align", cfg_gene):
+    if train and "alignment_gene_space" not in run.results and run.stage("align_gene_space", run.fixed_tree, "align", cfg_gene):
         f = Path(cfg_gene["checkpoint_dir"]) / "ewc_alignment_noAE.pt"
         run.save("alignment_gene_space", alignment_metrics(load_M(f), data.y_sc, data.y_st))
         f.unlink()
