@@ -47,8 +47,8 @@ def test_alignment_uses_pretrained_encoders(cfg):
     run_pretrain(cfg)
     module = run_align(cfg)
 
-    data = load_pair(cfg["data"]["dir"], "st.h5ad", "sc.h5ad")
-    full_sc, full_st, edge_index = data.full_batch(knn=cfg["align"]["knn"])
+    data = load_pair(cfg["data"]["dir"], "st.h5ad", "sc.h5ad", knn=4, section_key="section")
+    full_sc, full_st, edge_index = data.full_batch()
     ae = CrossModalAE(d_input=data.n_genes, **cfg["model"]).load_weights(cfg["checkpoint_dir"]).eval()
     z_sc, z_st = ae.encode(full_sc, full_st, edge_index)
 

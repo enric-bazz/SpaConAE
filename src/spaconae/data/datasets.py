@@ -10,7 +10,7 @@ import torch
 from scipy import sparse as sp
 from torch.utils.data import Dataset
 
-from .graph import location_to_edge
+from .graph import seed_subgraph
 
 
 def _dense_float32(x):
@@ -36,22 +36,38 @@ class RNADataset(Dataset):
 
 
 class SpatialDataset(Dataset):
-    """Returns ``(expression, location, index, label)``."""
+    """Spots with their spatial graph.
 
-    def __init__(self, data_fit, location, labels=None):
+    Items are spot indices. ``collate`` turns a batch of them (the seeds) into
+    ``(x, edge_index, index, label)``, where ``x`` holds the seeds followed by
+    their neighbours in the graph and ``edge_index`` the edges between them
+    (see ``seed_subgraph``). ``index`` and ``label`` refer to the seeds only.
+    """
+
+    def __init__(self, data_fit, neighbors, labels=None):
         self.data_fit = _dense_float32(data_fit)
-        assert len(self.data_fit) == len(location)
+        assert len(self.data_fit) == len(neighbors)
         if labels is not None:
             assert len(labels) == len(self.data_fit)
-        self.location = np.asarray(location)
+        self.neighbors = neighbors
         self.labels = labels
 
     def __len__(self):
         return len(self.data_fit)
 
     def __getitem__(self, index):
-        label = -1 if self.labels is None else self.labels[index]
-        return self.data_fit[index], self.location[index], index, label
+        return index
+
+    def collate(self, seeds):
+        seeds = np.asarray(seeds, dtype=np.int64)
+        nodes, edge_index = seed_subgraph(self.neighbors, seeds)
+        x = torch.from_numpy(self.data_fit[nodes])
+        idx = torch.from_numpy(seeds)
+        if self.labels is None:
+            y = torch.full((len(seeds),), -1, dtype=torch.long)
+        else:
+            y = torch.as_tensor(self.labels[seeds], dtype=torch.long)
+        return x, edge_index, idx, y
 
 
 class RNACollate:
@@ -63,21 +79,3 @@ class RNACollate:
         idx = torch.tensor(batch_idx, dtype=torch.long)
         y = torch.tensor(batch_label, dtype=torch.long)
         return x, idx, y
-
-
-class SpatialCollate:
-    """Batches to ``(x, edge_index, index, label)``.
-
-    As in the notebooks, the kNN graph is built among the spots of the batch.
-    """
-
-    def __init__(self, knn=10):
-        self.knn = knn
-
-    def __call__(self, batch):
-        batch_fit, batch_location, batch_idx, batch_label = zip(*batch)
-        x = torch.from_numpy(np.vstack(batch_fit))
-        edge_index = location_to_edge(np.vstack(batch_location), self.knn)
-        idx = torch.tensor(batch_idx, dtype=torch.long)
-        y = torch.tensor(batch_label, dtype=torch.long)
-        return x, edge_index, idx, y

@@ -48,7 +48,10 @@ def _trainer(cfg, stage, max_epochs, callbacks=(), **kwargs):
 
 def _load_data(cfg, labels=False):
     d = cfg["data"]
-    return load_pair(d["dir"], d["st_file"], d["sc_file"], label_key=d.get("label_key") if labels else None)
+    return load_pair(
+        d["dir"], d["st_file"], d["sc_file"], knn=d["knn"],
+        label_key=d.get("label_key") if labels else None, section_key=d.get("section_key"),
+    )
 
 
 def _new_ae(cfg, data):
@@ -60,7 +63,7 @@ def run_pretrain(cfg):
     c = cfg["pretrain"]
     L.seed_everything(cfg["seed"])
     data = _load_data(cfg)
-    dm = PairedDataModule(data, batch_size_st=c["batch_size_st"], batch_size_sc=c["batch_size_sc"], knn=c["knn"])
+    dm = PairedDataModule(data, batch_size_st=c["batch_size_st"], batch_size_sc=c["batch_size_sc"])
 
     ae = _new_ae(cfg, data)
     module = AEPretrainModule(
@@ -77,7 +80,7 @@ def run_align(cfg):
     c = cfg["align"]
     L.seed_everything(cfg["seed"])
     data = _load_data(cfg)
-    full_sc, full_st, full_edge_index = data.full_batch(knn=c["knn"])
+    full_sc, full_st, full_edge_index = data.full_batch()
 
     ae = _new_ae(cfg, data)
     if c["encode_data"]:
@@ -111,7 +114,7 @@ def run_finetune(cfg):
     c = cfg["finetune"]
     L.seed_everything(cfg["seed"])
     data = _load_data(cfg)
-    dm = PairedDataModule(data, batch_size_st=c["batch_size_st"], batch_size_sc=c["batch_size_sc"], knn=c["knn"])
+    dm = PairedDataModule(data, batch_size_st=c["batch_size_st"], batch_size_sc=c["batch_size_sc"])
 
     ckpt_dir = Path(cfg["checkpoint_dir"])
     ewc_info = torch.load(ckpt_dir / c["alignment_file"], map_location="cpu")
@@ -150,7 +153,7 @@ def run_probe(cfg):
     data = _load_data(cfg, labels=True)
     dm = LabelTransferDataModule(
         data, batch_size_sc=c["batch_size_sc"], batch_size_st=c["batch_size_st"],
-        knn=c["knn"], val_fraction=c["val_fraction"],
+        val_fraction=c["val_fraction"],
     )
 
     ae = _new_ae(cfg, data)

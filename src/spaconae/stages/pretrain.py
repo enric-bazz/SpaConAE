@@ -18,10 +18,13 @@ class AEPretrainModule(L.LightningModule):
         self.recon_loss = nn.MSELoss()
 
     def training_step(self, batch, batch_idx):
-        x_st, edge_index, _, _ = batch["st"]
+        x_st, edge_index, spot_ids, _ = batch["st"]
         x_sc, _, _ = batch["sc"]
 
-        z_sc, z_st, sc_recon, st_recon = self.ae(x_sc, x_st, edge_index)
+        # x_st holds the batch spots followed by their graph neighbours
+        n_seeds = spot_ids.numel()
+        z_sc, z_st, sc_recon, st_recon = self.ae(x_sc, x_st, edge_index, n_seeds)
+        x_st = x_st[:n_seeds]
 
         recon_sc = self.recon_loss(x_sc, sc_recon)
         recon_st = self.recon_loss(x_st, st_recon)

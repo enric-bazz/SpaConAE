@@ -3,7 +3,7 @@
 import torch
 
 from spaconae import CrossModalAE
-from spaconae.data import location_to_edge
+from spaconae.data import full_edge_index, knn_neighbors
 from spaconae.losses import AlignmentMatrixLoss, ContinualLoss, ContrastiveLoss
 from spaconae.nn import AlignmentMatrix
 
@@ -12,7 +12,7 @@ def test_autoencoder_shapes_and_weight_roundtrip(tmp_path):
     torch.manual_seed(0)
     ae = CrossModalAE(d_input=20, d_hidden=16, d_latent=8)
     x_sc, x_st = torch.randn(10, 20), torch.randn(12, 20)
-    edge_index = location_to_edge(torch.rand(12, 2).numpy(), 4)
+    edge_index = full_edge_index(knn_neighbors(torch.rand(12, 2).numpy(), 4))
 
     z_sc, z_st, sc_recon, st_recon = ae(x_sc, x_st, edge_index)
     assert z_sc.shape == (10, 8) and z_st.shape == (12, 8)
